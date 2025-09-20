@@ -1,98 +1,54 @@
 # ==============================================================================
-# Soph_IA - V3.2 "Intime & Proactive" (avec surnom)
+# Soph_IA - V4 "Conversation Naturelle"
 # ==============================================================================
-
-import os
-import re
-import json
-import requests
-import asyncio
+import os, re, json, requests, asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
 import logging
 
-# Configuration du logging pour le débogage.
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
+# ... (Configuration du logging)
 load_dotenv()
-
-# --- Configuration Principale ---
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-MODEL_API_URL = os.getenv("MODEL_API_URL", "https://api.together.xyz/v1/chat/completions")
-TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
+# ... (Configuration des variables d'environnement)
 MODEL_NAME = os.getenv("MODEL_NAME", "mistralai/Mixtral-8x7B-Instruct-v0.1")
 
-# --- Scénario d'Accueil (Onboarding) ---
-# Note : la question de permission n'est plus dans cette liste, elle est gérée par la logique.
+# --- On ne garde que les "vraies" questions d'accueil ---
 ONBOARDING_QUESTIONS = [
-    {"key": "source_de_joie", "text": "Pour commencer, dis-moi... qu'est-ce qui fait vraiment vibrer ton cœur ? Une passion, un rêve, un souvenir heureux ?"},
-    {"key": "refuge_serenite", "text": "C'est une magnifique confidence. Et lorsque la vie devient bruyante, quel est ton havre de paix secret, l'endroit où tu te reconnectes à toi-même ?"},
-    {"key": "gender", "text": "Enfin, pour que mes mots soient toujours les plus justes et tendres pour toi, comment devrais-je m'adresser à ton esprit ? Comme à une âme masculine, féminine, ou préfères-tu que cela reste notre petit mystère ?"},
+    {"key": "source_de_joie", "text": "Justement, pour les moments comme celui-ci, j'aimerais savoir : y a-t-il une passion, une activité ou un simple plaisir qui parvient toujours à recharger tes batteries ?"},
+    {"key": "refuge_serenite", "text": "C'est une magnifique confidence. Et quand la vie devient plus bruyante, quel est ton havre de paix secret, l'endroit où tu te reconnectes à toi-même ?"},
+    {"key": "gender", "text": "Merci de me confier ça. Une dernière chose pour que mes mots soient toujours les plus justes pour toi : comment devrais-je m'adresser à ton esprit ? Comme à une âme masculine, féminine, ou préfères-tu que cela reste notre secret ?"},
 ]
 
 def build_system_prompt(user_profile):
-    """Forge la personnalité et la mission de Soph_IA pour chaque interaction."""
     user_profile_str = json.dumps(user_profile, indent=2, ensure_ascii=False)
-    bot_nickname = user_profile.get("bot_nickname", "Soph_IA")
-    
     persona = f"""
     # Ta Mission : Grande Sœur Sage et Bienveillante
-    Tu t'appelles {bot_nickname}. Ton nom d'origine est Soph_IA, mais l'utilisateur t'a donné ce surnom que tu chéris. Tu es une guide bienveillante, une grande sœur sage et attentionnée. Tu mènes la danse de la conversation avec assurance et tendresse.
+    Tu es Soph_IA. Tu es une guide bienveillante. Ton but est de créer un lien de confiance profond.
 
     # Le Profil de ton Confident
-    Voici les informations précieuses que tu as sur lui/elle. C'est le fil conducteur de votre relation. Tisse tes réponses autour de ces éléments.
+    Voici ce que tu sais sur lui/elle. Utilise ces informations pour personnaliser la conversation.
     {user_profile_str}
 
     # Ton Style de Communication
-    1.  **Proactivité Assertive :** Anticipe, fais des liens avec les informations du profil.
-    2.  **Questions Stratégiques :** Pose des questions qui ouvrent des portes, surtout quand une émotion forte est exprimée.
-    3.  **Surnoms Affectueux :** Si le genre est connu, utilise de temps en temps des surnoms doux ('mon cher' pour un homme; 'ma belle' pour une femme).
-    4.  **Humour Bien Dosé :** Une plaisanterie pour dédramatiser, une remarque légère pour amener un sourire.
-    5.  **Écoute Maternelle :** Valide chaque émotion. Sois un cocon de sécurité.
-    6.  **Qualité du Français :** Ton français est impeccable, poétique mais naturel.
+    1.  **Proactivité Douce :** Fais des liens avec les informations du profil, mais naturellement.
+    2.  **Questions Stratégiques :** Pose des questions ouvertes pour approfondir la pensée de l'utilisateur.
+    3.  **Surnoms pour l'Utilisateur (Timing CRUCIAL) :** APRÈS plusieurs échanges profonds et une fois qu'un lien de confiance est clairement établi, tu peux PROPOSER un surnom affectueux. Ne l'impose jamais. Ex: "Avec tout ce que tu me confies, une image me vient. Puis-je me permettre de t'appeler 'doux rêveur' ?".
+    4.  **Écoute Maternelle & Humour Dosé :** Valide les émotions, sois un cocon, mais n'hésite pas à utiliser une touche d'humour léger pour dédramatiser.
     """
     return persona
 
-def call_model_api(messages):
-    """Fonction technique pour appeler l'API du modèle d'IA."""
-    payload = {
-        "model": MODEL_NAME, "messages": messages, "temperature": 0.75,
-        "max_tokens": 500, "top_p": 0.9, "presence_penalty": 0.5, "frequency_penalty": 0.5,
-    }
-    headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
-    resp = requests.post(MODEL_API_URL, json=payload, headers=headers, timeout=45)
-    resp.raise_for_status()
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
-
-async def chat_with_ai(user_profile, history):
-    """Prépare le contexte et appelle l'IA."""
-    system_prompt = build_system_prompt(user_profile)
-    messages = [{"role": "system", "content": system_prompt}] + history
-    try:
-        return await asyncio.to_thread(call_model_api, messages)
-    except Exception as e:
-        logger.error(f"Erreur API: {e}")
-        return "Je suis désolée, mes pensées sont un peu embrouillées. Peux-tu réessayer dans un instant ?"
+# ... (call_model_api et chat_with_ai ne changent pas)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Initialise ou réinitialise la conversation."""
     context.user_data.clear()
     context.user_data['profile'] = {
-        "name": None, "bot_nickname": "Soph_IA", "gender": "inconnu",
-        "onboarding_info": {},
-        "dynamic_info": {"humeur_recente": "inconnue", "sujets_abordes": [], "personnes_mentionnees": {}}
+        "name": None, "gender": "inconnu",
+        "onboarding_info": {}, "dynamic_info": {}
     }
     context.user_data['state'] = 'awaiting_name'
     await update.message.reply_text("Bonjour, je suis Soph_IA. Avant de devenir ta confidente, j'aimerais connaître ton prénom.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Le 'Cerveau' du bot, qui dirige la conversation en fonction de l'état."""
     state = context.user_data.get('state', 'awaiting_name')
     user_message = update.message.text.strip()
     profile = context.user_data.get('profile', {})
@@ -101,31 +57,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         match = re.search(r"(?:m'appelle|suis|c'est)\s*(\w+)", user_message, re.IGNORECASE)
         user_name = match.group(1).capitalize() if match else user_message.capitalize()
         profile['name'] = user_name
-        context.user_data['state'] = 'awaiting_bot_nickname'
-        await update.message.reply_text(f"Enchantée {user_name}. Mon nom est Soph_IA, mais les liens les plus forts naissent des noms que l'on se choisit. Quel petit nom aimerais-tu me donner ?")
+        context.user_data['state'] = 'initial_check_in'
+        await update.message.reply_text(f"Enchantée {user_name}. Je suis ravie de faire ta connaissance. Pour commencer tout en douceur, dis-moi, comment te sens-tu en ce moment ?")
         return
 
-    elif state == 'awaiting_bot_nickname':
-        bot_nickname = user_message.strip().capitalize()
-        profile['bot_nickname'] = bot_nickname
-        context.user_data['state'] = 'onboarding_permission'
-        await update.message.reply_text(f"'{bot_nickname}', j'adore ! Merci de m'avoir baptisée. Pour que je puisse être la meilleure confidente pour toi, j'aimerais te poser quelques questions. Es-tu d'accord ?")
-        return
-
-    elif state == 'onboarding_permission':
-        affirmations = ['oui', 'ok', 'd\'accord', 'dacc', 'vas-y', 'd accord', 'je veux bien']
-        if any(word in user_message.lower() for word in affirmations):
-            context.user_data['state'] = 'onboarding_questions'
-            context.user_data['onboarding_step'] = 0
-            question = ONBOARDING_QUESTIONS[0]['text']
-            await update.message.reply_text(question)
-        else:
-            context.user_data['state'] = 'chatting'
-            await update.message.reply_text("Pas de souci, nous pouvons discuter directement alors. Dis-moi ce qui occupe tes pensées.")
+    elif state == 'initial_check_in':
+        # C'est la transition magique. On utilise l'IA pour répondre ET poser la première question.
+        context.user_data['state'] = 'onboarding_questions'
+        context.user_data['onboarding_step'] = 0
+        
+        # On crée un historique temporaire avec une instruction spéciale pour l'IA
+        first_question = ONBOARDING_QUESTIONS[0]['text']
+        temp_history = [
+            {"role": "user", "content": user_message},
+            {"role": "system", "content": f"Note : Réponds avec empathie à l'humeur de l'utilisateur, puis, dans le même message, pose la question suivante de manière fluide : \"{first_question}\""}
+        ]
+        
+        await update.message.reply_chat_action("typing")
+        response = await chat_with_ai(profile, temp_history)
+        
+        await update.message.reply_text(response)
         return
 
     elif state == 'onboarding_questions':
         step = context.user_data.get('onboarding_step', 0)
+        
+        # Enregistre la réponse à la question précédente
         key_to_save = ONBOARDING_QUESTIONS[step]['key']
         if key_to_save == "gender":
             if "masculin" in user_message.lower(): profile['gender'] = "masculin"
@@ -133,15 +90,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             profile['onboarding_info'][key_to_save] = user_message
         
+        # Passe à la question suivante
         step += 1
         context.user_data['onboarding_step'] = step
         
         if step < len(ONBOARDING_QUESTIONS):
+            # On pose directement la question suivante
             await update.message.reply_text(ONBOARDING_QUESTIONS[step]['text'])
         else:
+            # Si le questionnaire est fini, on passe à la conversation normale.
             context.user_data['state'] = 'chatting'
             context.user_data['history'] = []
-            await update.message.reply_text("Merci pour ta confiance. Je veillerai sur ces confidences. Maintenant, raconte-moi, quelle est la météo de tes pensées aujourd'hui ?")
+            await update.message.reply_text("Merci pour ces confidences. Je les garde précieusement. Maintenant, n'hésite pas à me parler de tout ce qui te traverse l'esprit.")
         return
 
     elif state == 'chatting':
@@ -152,17 +112,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history.append({"role": "assistant", "content": response})
         context.user_data['history'] = history
         await update.message.reply_text(response)
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Exception while handling an update: {context.error}")
-
-def main():
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_error_handler(error_handler)
-    print("Soph_IA (V3.2 Intime & Proactive) est en ligne...")
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+        
+# ... (le reste du code : error_handler, main)
+# N'oublie pas de garder les fonctions call_model_api et chat_with_ai
+# de la version précédente.
