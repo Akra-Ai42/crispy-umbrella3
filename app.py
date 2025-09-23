@@ -1,5 +1,5 @@
 # ==============================================================================
-# Soph_IA - V4 "Conversation Naturelle"
+# Soph_IA - V4 "Conversation Naturelle" (Corrigée)
 # ==============================================================================
 import os
 import re
@@ -82,9 +82,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bonjour, je suis Soph_IA. Avant de devenir ta confidente, j'aimerais connaître ton prénom.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # --- LA CORRECTION EST ICI ---
+    # On s'assure que le profil existe ET qu'il a la bonne structure à chaque message.
+    # C'est une sécurité pour les utilisateurs qui ne commencent pas par /start.
+    if 'profile' not in context.user_data:
+        context.user_data['profile'] = {
+            "name": None, "gender": "inconnu",
+            "onboarding_info": {}, "dynamic_info": {}
+        }
+
     state = context.user_data.get('state', 'awaiting_name')
     user_message = update.message.text.strip()
-    profile = context.user_data.get('profile', {})
+    profile = context.user_data['profile'] # On peut maintenant l'utiliser en toute sécurité.
 
     if state == 'awaiting_name':
         match = re.search(r"(?:m'appelle|suis|c'est)\s*(\w+)", user_message, re.IGNORECASE)
@@ -139,11 +148,20 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # Gère les commandes (ex: /start)
     application.add_handler(CommandHandler("start", start))
+    
+    # Gère les messages texte
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # LA CORRECTION EST ICI : On utilise la fonction dédiée pour les erreurs
     application.add_error_handler(error_handler)
+
     print("Soph_IA V4 (Conversation Naturelle) est en ligne...")
+    application.run_polling()
     application.run_polling()
 
 if __name__ == "__main__":
     main()
+
